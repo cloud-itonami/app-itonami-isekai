@@ -1,13 +1,16 @@
-name: ci
+name: oracle
 
 on:
   push:
   pull_request:
 
 jobs:
-  test:
+  oracle-test:
+    name: oracle (reference only) — test
     runs-on: ubuntu-latest
     steps:
+      - name: oracle notice
+        run: echo "ORACLE job - reference measurement only, not a gate, not a required check, no native build or gate depends on it (AGENTS.md CI exception, JUN-579)."
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
@@ -19,7 +22,7 @@ jobs:
       - run: clojure -M:test
       - run: clojure -M:lint
 
-  render-verify:
+  oracle-render-verify:
     # Real-pixel headless-WebGL2 verification (render-test/render_pixel_test.clj, via
     # kotoba-lang/webgpu's kami.playwright + kami.sprite-gpu, readPixels-based): draws
     # kami-app-isekai.voxel-world/terrain-height as a top-down heightmap and checks the
@@ -27,9 +30,11 @@ jobs:
     # (kami-app-isekai.heightmap-color/height->color). Not part of the `test` job above —
     # this repo's own deps.edn/clojure -M:test stays free of the render-pipeline dependency
     # (kotoba-lang/webgpu + kotoba-lang/expr are sibling-checkout-only, see bb.edn).
-    name: bb render-test (headless WebGL2 pixel verification of terrain-height)
+    name: oracle (reference only) — bb render-test (headless WebGL2 pixel verification of terrain-height)
     runs-on: ubuntu-latest
     steps:
+      - name: oracle notice
+        run: echo "ORACLE job - reference measurement only, not a gate, not a required check, no native build or gate depends on it (AGENTS.md CI exception, JUN-579)."
       - name: Checkout kami-app-isekai (as a sibling of webgpu/expr below, for bb.edn's ../webgpu)
         uses: actions/checkout@v4
         with: { path: kami-app-isekai }
