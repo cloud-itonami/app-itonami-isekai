@@ -12,6 +12,28 @@ jobs:
       - name: oracle notice
         run: echo "ORACLE job - reference measurement only, not a gate, not a required check, no native build or gate depends on it (AGENTS.md CI exception, JUN-579)."
       - uses: actions/checkout@v4
+      - name: check no deleted-repo pins remain
+        run: |
+          python3 - <<'EOF'
+          import re, sys
+          txt = open('deps.edn').read()
+          bad = []
+          for i, ln in enumerate(txt.split('\n'), 1):
+              for m in re.finditer(r':git/url\s+"(https://github\.com/kotoba-lang/([a-zA-Z0-9_.\-]+?)(\.git)?)"', ln):
+                  if m.group(2) not in ('kotoba', 'amu'):
+                      bad.append('%d: dead repo URL %s' % (i, m.group(1)))
+          for m in re.finditer(r"((?:io\.github\.kotoba-lang|kotoba-lang|gftd)/[a-zA-Z0-9_.\-]+)\s*\n?\s*(\{[^{}]*\})", txt):
+              key, block = m.group(1), m.group(2)
+              if key in ("io.github.kotoba-lang/amu", "kotoba-lang/amu"):
+                  continue
+              if ":git/url" not in block and re.search(r":git/sha\s+\"[0-9a-f]+\"|:sha\s+\"[0-9a-f]+\"", block):
+                  bad.append('%d: bare git sha without :git/url: %s' % (txt[:m.start()].count("\n") + 1, key))
+          if bad:
+              print("deleted-repo pins remain:")
+              [print("  " + b) for b in bad]
+              sys.exit(1)
+          print("pins OK: no deleted kotoba-lang repo URLs or bare shas")
+          EOF
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -39,25 +61,35 @@ jobs:
         uses: actions/checkout@v4
         with: { path: kami-app-isekai }
       - name: Checkout kotoba-lang/webgpu (sibling dep, render-test's kami.sprite-gpu/kami.playwright)
+        id: checkout-webgpu
+        continue-on-error: true
         uses: actions/checkout@v4
         with: { repository: kotoba-lang/webgpu, path: webgpu }
       - name: Checkout kotoba-lang/expr (sibling dep, webgpu's bb.edn "../expr/src" — kotoba.expr)
+        id: checkout-expr
+        continue-on-error: true
         uses: actions/checkout@v4
         with: { repository: kotoba-lang/expr, path: expr }
       - uses: actions/setup-java@v4
+        if: steps.checkout-webgpu.outcome == 'success' && steps.checkout-expr.outcome == 'success'
         with: { distribution: temurin, java-version: '21' }
       - name: Install babashka
+        if: steps.checkout-webgpu.outcome == 'success' && steps.checkout-expr.outcome == 'success'
         uses: DeLaGuardo/setup-clojure@13.4
         with: { bb: 'latest' }
       - uses: actions/setup-node@v4
+        if: steps.checkout-webgpu.outcome == 'success' && steps.checkout-expr.outcome == 'success'
         with: { node-version: '22' }
       - name: Install playwright (webgpu checkout has no committed package.json yet; ad hoc install)
+        if: steps.checkout-webgpu.outcome == 'success' && steps.checkout-expr.outcome == 'success'
         working-directory: webgpu
         run: npm install --no-save playwright@^1.61.1
       - name: Install headless Chromium (full "Chrome for Testing" build)
+        if: steps.checkout-webgpu.outcome == 'success' && steps.checkout-expr.outcome == 'success'
         working-directory: webgpu
         run: npx playwright install --with-deps chromium
       - name: Cross-platform chromium resolution fix (kotoba-lang/webgpu PR #9's technique)
+        if: steps.checkout-webgpu.outcome == 'success' && steps.checkout-expr.outcome == 'success'
         working-directory: webgpu
         # webgpu's scripts/pw_eval.cjs on main still hand-rolls a macOS-only
         # ~/Library/Caches/ms-playwright cache-path search for the chromium binary, which
@@ -100,7 +132,13 @@ jobs:
           })();
           EOF
       - name: bb render-test — headless WebGL2 pixel-verify of terrain-height's heightmap
+        if: steps.checkout-webgpu.outcome == 'success' && steps.checkout-expr.outcome == 'success'
         working-directory: kami-app-isekai
         env:
           NODE_PATH: ${{ github.workspace }}/webgpu/node_modules
         run: bb render-test
+      - name: oracle skipped - render siblings unavailable (notice, not a failure)
+        if: steps.checkout-webgpu.outcome != 'success' || steps.checkout-expr.outcome != 'success'
+        run: |
+          echo 'NOTICE - skipping headless WebGL2 render verification: the sibling checkouts kotoba-lang/webgpu and kotoba-lang/expr are unavailable (both repos were deleted in the kotoba monorepo move). Dev decision, Itonami Bots item 134; tracking: AWAI-3835. The -M:test job above still ran.'
+          echo "::notice ::oracle skipped render verification (deleted siblings kotoba-lang/webgpu, kotoba-lang/expr). See AWAI-3835."
